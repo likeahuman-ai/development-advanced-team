@@ -26,6 +26,8 @@ These are context, not part of this envelope; the envelope names them so you kno
 
 You may read the local tree at your discretion — direction from this dispatch, discretion to you (your agent file holds how).
 
+**Cite locations by the real tree line, not the diff.** The diff is the seed; the local working copy is already positioned at the PR head (the read-surface). Every `file:line` you report is the line in *that tree* (grep the symbol) — never a `gh pr diff` hunk offset, which overshoots the file and breaks the permalink.
+
 ## Output
 
 Report in your own agent-file format. The session collects every report per `finding-report-format` (`${CLAUDE_PLUGIN_ROOT}/skills/sprint-review/formats/finding-report-format.md`) — that format owns the collected shape; you fill your block, the arbiter fills its.

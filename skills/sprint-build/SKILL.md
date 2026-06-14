@@ -10,7 +10,7 @@ argument-hint: "Ticket numbers (e.g. '#203 #204') — only needed when no pinned
 
 *Trust the artifact.* The pinned build-order issue from `/sprint-tickets` is the approved plan — `## Parallel Waves` · `## PR Grouping` · `## Scope` · `## Verify` are decided. Execute them as written: never recompute waves, never re-derive the grouping, never re-open the scope. Use the provision and Verify commands verbatim. Deviate only when faithful execution would actually break (a referenced issue, file, or symbol does not exist; two instructions directly contradict) — then stop and escalate. Never diverge silently.
 
-Formats referenced as `<name>-format` live at `skills/sprint-build/formats/<name>.md`; prompts referenced as `<name>-prompt` at `skills/sprint-build/prompts/<name>.md` (under `${CLAUDE_PLUGIN_ROOT}`).
+Formats referenced as `<name>-format` live at `skills/sprint-build/formats/<name>-format.md`; prompts referenced as `<name>-prompt` at `skills/sprint-build/prompts/<name>-prompt.md` (under `${CLAUDE_PLUGIN_ROOT}`) — the filename keeps the `-format`/`-prompt` suffix.
 
 **No human gates in this phase.** Build runs autonomously from the build-order to the draft PRs; its gates are agent/verify checks, which ride inline (they are not their own named steps). Pause only to escalate.
 
@@ -191,19 +191,22 @@ if a founding or prior-wave commit is missing, re-parented onto the seed, or orp
 
 ### 3.3.1 Partition into PR chain(s)
 
-From the build-order's `## PR Grouping` (coupling + dependency-closed — decided at Tickets 2.5.3, trust it):
+From the build-order's `## PR Grouping` (coupling + dependency-closed — decided at Tickets 2.5.3, trust it). Each group is marked **peer** (depends only on what's already on `development`) or **stacked** (hard-depends on a prior group *in this sprint*) — read that mark, never recompute it.
 
 **One group → no surgery.** The integration chain *is* the PR chain → 3.4.
 
-**N groups → partition.** Per group, its commits in wave order:
+**Peer groups → duplicate** (each is independently based on `development`). Per peer group, its commits in wave order:
 
 ```bash
 jj duplicate <group-revs> -o development@origin
 ```
 
-- A **clean duplicate self-validates dependency-closure**. if a duplicate records a conflict → the group wasn't dependency-closed → **flag, don't force** — never resolve it into existence.
-- Once all groups cut clean → `jj abandon` the original chain's head — consumed by the duplicates (nothing lost; keeps `jj log` honest).
-- Then run the build-order **Verify on each duplicated tip** — a clean duplicate proves only *textual* independence; a group can apply clean and **break standalone** (3.2.5 gated only the combined tip). if a tip fails → flag the grouping (a Tickets 2.5.3 signal), **don't push**.
+- A **clean duplicate self-validates peer independence**. if a *peer* duplicate records a conflict → the group wasn't dependency-closed → **flag, don't force** — never resolve it into existence.
+- Once the peer groups cut clean → `jj abandon` the original chain's head **only if no stacked group still rides it** (consumed by the duplicates; keeps `jj log` honest).
+
+**Stacked groups → keep the chain, never duplicate (ADR-014).** A stacked group depends on a prior group *still in this sprint*, so it does **not** rebase onto bare `development` — duplicating it there records a conflict *because of the real dependency, not a closure gap*. **Do not misread that as un-closed and refuse to publish** (the old peer-only failure mode). Leave the verified chain intact: note each group's tip and its base — the first group's base is `development` (it carries `docs(plan)`), each later group's base is the prior group's tip. The names are created at push (3.4.1); a mixed sprint duplicates its peers and leaves its stack in place.
+
+**Per-group standalone Verify.** Run the build-order Verify on each group's tip — a peer's duplicated tip, or a stacked group's tip *on the chain* (which includes its base groups — the state it is reviewed in). A clean cut proves only *textual* independence; a group can apply clean and **break standalone** (3.2.5 gated only the combined tip). if a tip fails → flag the grouping (a Tickets 2.5.3 signal), **don't push**.
 
 ---
 
@@ -213,23 +216,26 @@ jj duplicate <group-revs> -o development@origin
 
 ### 3.4.1 Name + push the chain(s)
 
-**Publication** — per PR chain:
+**Publication** — per PR chain, in build-order (a stack's base group first):
 
 ```bash
 jj git push --named feat/sprint-v{N}(-<g>)=<tip>
 ```
 
-`<g>` = the group's slug from `## PR Grouping` — deterministic, two runs name alike; one group → no `-<g>`. The name exists only from here, and nothing was pushed before — durability was local. **jj runs no git hooks** — the gates already ran (3.2.5 on the combined tip; 3.3.1 per divided tip); push is transport, not a gate.
+`<tip>` is the group's tip — a **peer**'s duplicated tip (3.3.1) or a **stacked** group's tip on the verified chain. `<g>` = the group's slug from `## PR Grouping` — deterministic, two runs name alike; one group → no `-<g>`. The name exists only from here, and nothing was pushed before — durability was local. For a stack, pushing the base tip and each later group's tip publishes **one linear history under several refs** — no duplication, no force (each is a fresh named bookmark). **jj runs no git hooks** — the gates already ran (3.2.5 on the combined tip; 3.3.1 per divided/stacked tip); push is transport, not a gate.
 
 ### 3.4.2 Create the PR(s)
 
-One **draft** PR per PR chain, body per `pr-format`:
+One **draft** PR per PR chain, body per `pr-format`. The `--base` follows the group's mark (3.3.1):
 
 ```bash
+# peer group, or a stack's base group → based on development
 gh pr create --draft --base development --head feat/sprint-v{N}(-<g>) --label needs-review --title "..." --body-file <pr-body>
+# a stack's dependent group → based on the prior group's branch
+gh pr create --draft --base feat/sprint-v{N}-<prior-g> --head feat/sprint-v{N}-<g> --label needs-review --title "..." --body-file <pr-body>
 ```
 
-**Draft blocks the UI merge buttons** — the machine guard against the catastrophic accident: a squash-merge click collapsing the atomic chain. Review lifts draft at 4.1.3. `needs-review` is the flow state; draft is the machine guard — apply both.
+A stacked PR's `--base` is the prior group's branch — so GitHub diffs it against that base, showing only the dependent group's delta, and Refine lands the stacked chain base-first (5.x). **Draft blocks the UI merge buttons** — the machine guard against the catastrophic accident: a squash-merge click collapsing the atomic chain. Review lifts draft at 4.1.3. `needs-review` is the flow state; draft is the machine guard — apply both.
 
 ### 3.4.3 Retire the sprint's issues
 

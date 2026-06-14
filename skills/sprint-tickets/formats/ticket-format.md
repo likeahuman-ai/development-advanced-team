@@ -39,6 +39,8 @@ Flat sections, no nested subsections, no prose preamble. Each serves one downstr
 
 **Mandatory:** all sections except where marked `or —` — the `ADR:` line and the `.spec` anchor are the only optional facts (`## Files` markers take `—` when empty but the section is always present). Density target: ~150–300 words of prose + lists per ticket.
 
+**Output-shaped tickets carry a sample.** When a ticket's job is to *parse or build against the output of a tool the implementer cannot run* — it provisions only the build and never runs git / jj or project CLIs (implementer-prompt) — embed a **representative sample of that output verbatim** in `## Context` (a fenced block; or `## Requirements` if the shape *is* the spec), captured at Tickets time (2.1.1 explorer / 2.2.2 architect). The implementer builds against the sample, never a live run — so the absolute "never run jj/git" rule stays intact *and* the contract stays observable. E.g. a ticket to parse `jj log -T 'json(...)'` JSONL includes a real snippet of that JSONL.
+
 ## Template
 
 ```markdown

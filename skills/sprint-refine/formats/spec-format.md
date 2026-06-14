@@ -95,7 +95,7 @@ ADR: ADR-004
 drift: detected dead-letter store wired in outside this diff; corrected ## Runtime / Data-flow view
 ```
 
-(The `sections:` line is projected straight from the hunk-list — four hunks, four entries, each carrying its kind (ADDED/MODIFIED) and exact anchor, so the commit alone tells a reader which sections were ADDED vs MODIFIED and none can name an untouched section. The subject glosses those entries by topic — no `## Data Model` token, since no `## Data Model` hunk exists; `## Crosscutting Concepts & Patterns` is recorded by its `### Idempotency` grain, never abbreviated to `## Concepts`. The `Assisted-by:` trailer is config-appended; the change-id stays stable across rebases so the fact is traceable through the land.)
+(The `sections:` line is projected straight from the hunk-list — four hunks, four entries, each carrying its kind (ADDED/MODIFIED) and exact anchor, so the commit alone tells a reader which sections were ADDED vs MODIFIED and none can name an untouched section. The subject glosses those entries by topic — no `## Data Model` token, since no `## Data Model` hunk exists; `## Crosscutting Concepts & Patterns` is recorded by its `### Idempotency` grain, never abbreviated to `## Concepts`. The `Assisted-by:` trailer is session-authored from the dispatch record (commit-format); the change-id stays stable across rebases so the fact is traceable through the land.)
 
 After the session applies these hunks, the touched regions of `.spec/spec.md` read (the apply result, not the producer's deliverable):
 

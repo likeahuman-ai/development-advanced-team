@@ -53,9 +53,11 @@ gh issue list --label build-order --label "v{N}" --state closed --json number,ti
 gh issue view <number>
 ```
 
-### 5.0.2 Iterate per PR
+### 5.0.2 Iterate per PR — fixes fan out, the land serialises
 
-Run 5.1–5.2 **per PR, one PR at a time, any order** — divided PRs are independent peers. The single working copy is the work surface — the serial boundary: parallelism lives ONLY inside a PR's fix batch, never across PRs. Never refine two PRs concurrently.
+**Fixes + spec fan out across PRs (ADR-014).** The old "single working copy = serial boundary" is lifted: each PR's fix-agents and `spec-writer` run in their **own jj workspaces** (Build 3.1.2's machinery), so the **slow work overlaps across PRs**. Mechanism: position `@` at a PR's tip (5.0.3) and dispatch *that* PR's fix batch — the create hook cuts its workspaces from `@-`, so each PR's batch must be cut while `@` sits on its tip — then move to the next PR and dispatch its batch; **once cut, the workspaces are independent, so all PRs' batches run concurrently** (creation is staggered, execution overlaps). The session stays **sole committer**: it folds each returned workspace serially onto *that PR's own chain* (folding is cheap; the dispatched agent work is what parallelises). *(Cross-PR dispatch shares the agent concurrency cap with each PR's own fix batch — it schedules, not free-doubles; still a win when one PR's batch finishes early.)*
+
+**Land order.** **Peers** (`base: development`) are independent → land in **any order**. A **stack** (a PR whose `base:` is a prior in-sprint group) lands in **dependency order, base first** (5.2.5) — the dependent rebases onto the *landed* base. The land is **always serial** regardless: `development` is one resource and the stale-lease push is the concurrency control (5.2.5).
 
 ### 5.0.3 Re-assert position (per PR)
 
@@ -194,6 +196,12 @@ jj git push --bookmark development
 
 The bookmark move is forward-only — the FF; jj refuses a backward move. if the push rejects on a **stale lease** → that rejection IS the concurrency control: `jj git fetch` · re-rebase · retry. The PR then closes — its commits landed under fresh SHAs, change-ids preserved.
 
+**Stacked PRs (ADR-014) — base-first, retarget before delete.** When a PR is a stack (its `base:` ≠ `development`):
+
+- Land the **base group first** — it lands as a normal peer onto `development` (above). Only then land each dependent, in `base:` order.
+- Before landing a dependent, **retarget its PR base to `development`** — `gh pr edit <number> --base development` — *before* 5.2.6 deletes the base group's branch (else GitHub orphans the dependent PR). Then land it: `jj git fetch` · `jj rebase -b <headRefName> -o development@origin` (the base group's commits are already on `development` by change-id, so only the dependent's own commits move; descriptions + trailers + change-ids preserved — **never a squash**) · **re-run the build-order Verify on the rebased tip** (its base changed — a fix that landed on the base may have shifted a seam) · FF + push as above.
+- A conflict at the dependent's restack is the same path below — a **code** conflict parks, a **doc/spec** overlap is the spec-writer exception.
+
 **Conflicted rebase → park, don't block — and NEVER auto-resolve:**
 
 - apply the label + a details comment: `gh pr edit <number> --add-label conflict-parked` + `gh pr comment` listing the conflicting change-IDs · the files · the landed sprint it crosses · @both devs.
@@ -257,12 +265,12 @@ Then recommend the next step — *phases don't share a session; artifacts are th
 ## Key principles
 
 - **Parking is not solving** — a conflicted land records, the PR parks for a paired human session, and everything else continues; this skill never auto-resolves a land conflict. Doc/spec overlaps re-dispatch `spec-writer` instead — never a parked pair.
-- **Serial per PR, parallel within a PR** — the single working copy is the work surface; parallelism lives only inside a PR's fix batch.
+- **Fixes fan out, the land serialises (ADR-014)** — each PR's fix-agents + `spec-writer` run in their own jj workspaces, so the slow work overlaps across PRs (not one PR at a time); the session folds serially as sole committer. Peers land any order, a stack lands base-first; the land itself is always serial (one trunk, stale-lease control).
 - **Session is the sole author** — fix agents and `spec-writer` are hands, not authors: diffs in, session-authored commits out; workers never commit, never run jj.
 - **One atomic commit per finding** — `fix(scope): <finding>`; a testable fix + its regression test is one commit; fixes are never bundled.
 - **Verify is a step, not a push side effect** — jj runs no git hooks; 5.1.5 is the explicit gate (Verify + `conflicts()` empty), and only then does 5.1.6 publish.
 - **Gates on content, never vcs ops** — pick findings (5.1.2), approve the delta (5.2.2), accept the PR (5.2.4); every commit, push, and land follows autonomously.
-- **The trunk only moves forward** — land = fetch → rebase → bookmark FF → lease push, per PR; a stale lease means fetch · re-rebase · retry; the flow never merges.
+- **The trunk only moves forward** — land = fetch → rebase → bookmark FF → lease push, per PR (a **stack** base-first: retarget the dependent's base to `development` before deleting the base branch, then rebase + FF); a stale lease means fetch · re-rebase · retry; the flow never merges.
 - **Flip rides the fact** — the `.sprint` `draft → built` flip is an annotation on the final PR's close-out commit, made by the session; 5.3.2 only confirms it, never commits.
 - **Bookmark deletion is manual** — rebase-land never fires GitHub's auto-delete; 5.2.6 deletes local + remote.
 - **Trust the artifact** — the latest `### Code Review` comment is the work order; never re-review, never re-score, never re-check Tickets/Build decisions.

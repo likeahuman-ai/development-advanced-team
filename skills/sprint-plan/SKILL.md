@@ -17,7 +17,7 @@ Four artifacts, separated by rate of change:
 
 `.spec` is read-only here — it is a claim about code, patched by Refine (5.2.1), never by this skill.
 
-This skill's formats (`brief-format` · `stories-format` · `adr-format` · `sprint-format`) live at `${CLAUDE_PLUGIN_ROOT}/skills/sprint-plan/formats/<name>.md`; dispatch prompts at `${CLAUDE_PLUGIN_ROOT}/skills/sprint-plan/prompts/<name>.md`. `commit-format` is owned by Build: `${CLAUDE_PLUGIN_ROOT}/skills/sprint-build/formats/commit-format.md`.
+This skill's formats (`brief-format` · `stories-format` · `adr-format` · `sprint-format`) live at `${CLAUDE_PLUGIN_ROOT}/skills/sprint-plan/formats/<name>-format.md`; dispatch prompts at `${CLAUDE_PLUGIN_ROOT}/skills/sprint-plan/prompts/<name>-prompt.md` — the filename keeps the `-format`/`-prompt` suffix. `commit-format` is owned by Build: `${CLAUDE_PLUGIN_ROOT}/skills/sprint-build/formats/commit-format.md`.
 
 Boundaries that hold for the whole phase:
 
@@ -64,14 +64,13 @@ Bootstrap on first contact — one homogeneous bundle (same kind of acts, each a
     ```bash
     jj config set --repo 'revset-aliases."immutable_heads()"' 'builtin_immutable_heads() | present(development@origin)'
     ```
-  - optional — config-enforce the invariant trailer: `jj config set --repo templates.commit_trailers '"Assisted-by: <agent> <model>"'` — substitute the session's actual agent and model before running (e.g. `Assisted-by: Claude Code claude-opus-4-8`), never the literal placeholders; the per-commit pointers (`Story:` · `ADR:`) stay session-written
 - if no remote → `gh repo create <owner>/<repo> --private --source=. --remote=origin` (provisional bootstrap)
-- if no `development` anywhere (greenfield) → **seed the trunk** (provisional sequence — lab-unverified):
+- if no `development` anywhere (greenfield) → **seed the trunk** (jj 0.42):
   ```bash
-  jj new root()
+  jj new 'root()'                                  # quote root() — bare () is a shell syntax error
   jj describe -m "chore: seed development"
   jj bookmark create development -r @
-  jj git push --bookmark development --allow-new
+  jj git push --bookmark development               # --bookmark auto-tracks a new bookmark in jj 0.42; no --allow-new
   ```
   Bootstrap scaffolding, exempt from the no-push doctrine (like `gh repo create` itself) — 1.0.4/1.0.5 need the trunk to exist.
 - protect `development` — **require linear history + block force pushes**, never "require a pull request" (Refine 5.2.5 pushes the trunk directly); applies once the trunk exists:
@@ -198,7 +197,7 @@ Finish **one** atomic commit of the documentation artifacts. Everything is alrea
   Assisted-by: <agent> <model>"
   jj new
   ```
-  Trailers carry the captured `Story:`/`ADR:` pointers by ID, never a copy. if 1.0.2 config-enforced the `Assisted-by:` trailer → omit that line here (the config appends it — writing both duplicates).
+  Trailers carry the captured `Story:`/`ADR:` pointers by ID (never a copy) plus `Assisted-by:` authored explicitly per commit-format — session-derived from the dispatch (`<role> <model>`), never config-appended.
 
 Follows the 1.3.1 acceptance — the gate approved the content; the commit is autonomous.
 

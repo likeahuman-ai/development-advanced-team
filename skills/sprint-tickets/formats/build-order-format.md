@@ -34,12 +34,13 @@ A recorded conflict noticed at authoring is **data, never silenced** — record 
 
 ## `## PR Grouping`
 
-Tickets grouped into PRs by **coupling** (shared runtime boundary — ship one behaviour, neither half reviews alone, 2.5.3) **and dependency-closed** (the group includes everything it hard-depends on, or depends only on `development`). Each group carries a deterministic **slug `<g>`** — Build names its branch `feat/sprint-v{N}-<g>` (3.4.1) and validates closure by clean `jj duplicate` (3.3.1). One group → no suffix.
+Tickets grouped into PRs by **coupling** (shared runtime boundary — ship one behaviour, neither half reviews alone, 2.5.3) **and dependency-closed** (the group includes everything it hard-depends on, or depends only on `development`). Each group is marked **peer** (based on `development`) or **stacked** (based on a prior in-sprint group — ADR-014) and carries a deterministic **slug `<g>`** — Build names its branch `feat/sprint-v{N}-<g>` (3.4.1): a **peer** validates closure by a clean `jj duplicate -o development@origin`; a **stacked** group is bookmarked on the verified chain, `--base` its prior group (3.3.1). One group → no suffix.
 
 The slug is the one load-bearing branch token, so it gets its own **explicit single-token field — never inferred from prose**. Per group:
 - `### <g>` header — the slug as the literal section title
 - `slug:` — the canonical branch token, restated as a bare single token so no other branch-like string in the body (e.g. `development` in the coupling line) can be mistaken for it; the `### ` title and the `slug:` value must match exactly
 - `members:` — the group's `#N`s
+- `base:` — the group's PR base: `development` for a **peer**, or the prior group's `slug` for a **stacked** group. The single load-bearing peer-vs-stacked fact — Build reads it to duplicate-vs-bookmark (3.3.1) and to set `gh pr create --base` (3.4.2); Refine reads it to land base-first (5.x). A bare single token (a slug or `development`), never inferred from the coupling prose.
 - `coupling:` — a one-line rationale (the shared boundary — why they ship together); the *why*, not restated requirements
 
 The slug must be branch-safe: lowercase, hyphen-separated, no spaces (`auth-core`, not `Auth Core` or `PR: auth`) — it is exactly the string Build substitutes into `feat/sprint-v{N}-<g>`, nothing further derived, normalised, or prefixed at read time.
@@ -102,12 +103,14 @@ A stretch/optional ticket is allowed **only as an already-resolved decision**, e
 ### auth-core
 - slug: auth-core
 - members: #41, #42, #43, #44
-- coupling: one auth-session boundary — handlers share the store + rate-limit config; split, neither half reviews alone. Dependency-closed (all deps internal).
+- base: development
+- coupling: one auth-session boundary — handlers share the store + rate-limit config; split, neither half reviews alone. Dependency-closed (all deps internal); **peer** (based on `development`).
 
 ### session-ui
 - slug: session-ui
 - members: #45
-- coupling: presentation layer over auth-core; depends on #43/#44 → joins nothing else, lands after auth-core is on `development`.
+- base: auth-core
+- coupling: presentation layer over auth-core — hard-depends on #43/#44 (in auth-core), so **stacked on auth-core**: its PR is based on `feat/sprint-v{N}-auth-core` and lands after auth-core (5.x), not folded in.
 
 ## Scope
 
@@ -142,6 +145,7 @@ A terse field → section → consumer-step index — *where each field is read*
 | `note:` | Parallel Waves | (audit) |
 | `### <g>` header · `slug:` | PR Grouping | Build 3.4.1 |
 | `members:` | PR Grouping | Build 3.3.1 |
+| `base:` (peer `development` / stacked `<prior-slug>`) | PR Grouping | Build 3.3.1 · 3.4.2 · Refine 5.x |
 | `coupling:` | PR Grouping | Build (context) |
 | Scope decision | Scope | Build 3.1.3 |
 | provision | Verify | Build 3.2.1 · 3.2.5 · Refine 5.1.5 |
