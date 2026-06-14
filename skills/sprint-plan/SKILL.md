@@ -80,6 +80,7 @@ Bootstrap on first contact — one homogeneous bundle (same kind of acts, each a
   ```
   if it fails (plan limits on private repos, insufficient token scopes) → warn the user it must be set by hand, record nothing, continue — the client-side jj guard above still holds
 - create missing folders — `.sprint` / `.adr` / `.stories`, + `.brief` when none exists
+- ensure `.claude/worktrees/` is **committed-ignored** — append it to the repo's `.gitignore` (create the file if absent), never to `.git/info/exclude`: Build's worktree-isolation substrate (jj workspaces, ADR-013) lives there and jj auto-snapshots every non-ignored path, so the ignore must be reproducible on a fresh clone, not machine-local
 
 ### 1.0.3 Enforce the `.sprint` lifecycle
 
@@ -194,10 +195,10 @@ Finish **one** atomic commit of the documentation artifacts. Everything is alrea
 
   Story: US-0XX, US-0YY
   ADR: ADR-0ZZ
-  Assisted-by: <agent> <model>"
+  Assisted-by: session <model>"
   jj new
   ```
-  Trailers carry the captured `Story:`/`ADR:` pointers by ID (never a copy) plus `Assisted-by:` authored explicitly per commit-format — session-derived from the dispatch (`<role> <model>`), never config-appended.
+  Trailers carry the captured `Story:`/`ADR:` pointers by ID (never a copy) plus `Assisted-by:` authored explicitly per commit-format. `docs(plan)`/`docs(brief)` are **session-authored** (no dispatched writer), so the role token is **`session`** and `<model>` is the session's own runtime model id — never config-appended.
 
 Follows the 1.3.1 acceptance — the gate approved the content; the commit is autonomous.
 

@@ -2,7 +2,7 @@
 
 The shape of the **`### Code Review` PR comment** — the published review output. Review 4.5.2 formats it (one per PR, posted at 4.6.3); Refine reads it as this PR's work order (5.0.4 eligibility, 5.1.1 fix-set). The literal `### Code Review` heading is the parse anchor both skills key off (its exact-text rule is below, in *Field rules*).
 
-Contents = the **published set** only: findings scoring `≥75`, plus `50–74` testable. The `50–74` non-testable backlog lives in `.sprint/findings.md` (4.5.1), never here — the comment is silent about bucketing. The arbitration (4.4.1) already happened: the binding score and `testable` verdict are reported as-given and **never mutated** here.
+Contents = the **published set** only: findings scoring `≥75`, plus `50–74` testable. The `50–74` non-testable backlog lives in this PR's own `.sprint/findings-<g>.md` (4.5.1), never here — the comment is silent about bucketing. The arbitration (4.4.1) already happened: the binding score and `testable` verdict are reported as-given and **never mutated** here.
 
 A consumer parses this comment for, per finding: binding score · `testable` verdict · description + evidence · commit-pinned permalink · `Files:` paths · finder. **Every recovered fact is a labeled field** — `Score:`, `Testable:`, `Found by:`, `Files:`, `Refs:` — so a context-less reader recovers each AS what it is, never inferring meaning from a bare number, word, or position. Format dense for that single parse pass — no severity labels (gone by design), no sign-off ceremony, no restated diff/standard/context.
 
@@ -59,7 +59,7 @@ No published findings. <one line on what the specialists covered.>
 
 ## Example
 
-A PR with three published findings. Two more findings existed but never reach the comment: a `58` non-testable maintainability note went to the backlog (`.sprint/findings.md`), and a `40` was dropped — the comment is silent about both; the bucketing logic lives at 4.4.2, invisible to the reader.
+A PR with three published findings. Two more findings existed but never reach the comment: a `58` non-testable maintainability note went to the backlog (`.sprint/findings-<g>.md`), and a `40` was dropped — the comment is silent about both; the bucketing logic lives at 4.4.2, invisible to the reader.
 
 ````markdown
 ### Code Review

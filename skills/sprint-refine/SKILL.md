@@ -6,7 +6,7 @@ argument-hint: "PR number(s) or URL(s) (optional — defaults to `needs-refine` 
 
 # /sprint-refine — Fix, Patch the Spec, Land
 
-Phase 5 of the sprint flow (Plan → Tickets → Build → Review → Refine). The per-PR spine: **fixes → spec delta → land** — each PR gets its findings fixed, its `.spec` delta written and approved, then lands on `development` by rebase + fast-forward, per PR (the flow never merges). Once every PR has landed, close the sprint. Starts at PR discovery (5.0.1), ends at the summary (5.3.4). Promoting `development → main` is a separate release step — out of scope.
+Phase 5 of the sprint flow (Plan → Tickets → Build → Review → Refine). The per-PR spine: **fixes → spec delta → land** — each PR gets its findings fixed, its `.spec` delta written and accuracy-verified, then lands on `development` by rebase + fast-forward, per PR (the flow never merges). Once every PR has landed, close the sprint. Starts at PR discovery (5.0.1), ends at the summary (5.3.4). Promoting `development → main` is a separate release step — out of scope.
 
 The latest `### Code Review` comment is this phase's **work order** — tickets drive Build, comments drive Refine. Never re-run Review's work, never re-check Tickets' or Build's decisions (*trust the artifact*).
 
@@ -25,7 +25,7 @@ Discover the PRs, present findings, dispatch fix agents and `spec-writer`, autho
 
 Subagents never run jj or git — all vcs motion (snapshots, describes, bookmarks, pushes) belongs to the session. Two agents do write the main tree's files (never the vcs): `spec-writer` (5.2.1, the solo writer) and the marker fix-agent on a recorded conflict (5.1.4).
 
-**Three human gates, all on acceptance of content:** 5.1.2 (pick the findings), 5.2.2 (approve the `.spec` delta / close-out bundle), 5.2.4 (accept the PR against its DoD). The vcs motion after each gate runs autonomously — never gate a commit, a push, or the land itself.
+**One human gate (ADR-016):** 5.2.4 (accept the PR against its DoD) — the genuine ship/no-ship call the model can't make for the user. The fix-set (5.1.2) and the `.spec` delta (5.2.2) run **autonomously**: 5.1.2 defaults to fix-all-published (the published set *is* Review's arbitrated must-fix set), and 5.2.2 self-verifies the delta's accuracy against the diff — gating either would rubber-stamp work the model can verify itself, which the rubric's own gate-ergonomics criterion forbids. The vcs motion after the gate runs autonomously — never gate a commit, a push, or the land itself.
 
 **Parking is not solving.** A conflicted land rebase is recorded, never a halt — the PR parks (`conflict-parked`) for a **paired human session**; this skill never auto-resolves a land conflict, and the trunk never freezes: every other PR proceeds.
 
@@ -90,9 +90,9 @@ Goal: apply this PR's must-fix findings — the published set in its comment (th
 
 Present this PR's published findings from the latest `### Code Review` comment (shaped per `finding-format`) — scores + `testable` tags exactly as published, no re-scoring, no severity labels.
 
-### 5.1.2 Gate — pick findings to fix
+### 5.1.2 Select the fix-set (autonomous)
 
-The user picks which published findings to fix — the fix-set is theirs to scope. if the user picks none → straight to 5.2 (the spec delta + land still run; distinct from 5.0.4's zero-findings skip).
+**Default: fix all published findings (ADR-016).** The published set already *is* Review's Opus-arbitrated must-fix set (`≥75` ∨ `≥50`∧testable), so "which to fix" is a computable default, not a decision needing a human — gating it would rubber-stamp work the model can verify itself. Narrowing the fix-set is **opt-in**, never a blocking stop: if the user has *already* asked to defer a tier, honour it; otherwise proceed with fix-all-published. if the published set is empty → straight to 5.2 (the spec delta + land still run; distinct from 5.0.4's zero-findings skip).
 
 ### 5.1.3 Dispatch fixes (parallel)
 
@@ -142,7 +142,7 @@ Publish the verified tip — push only verified state (5.1.5 just certified it):
 
 ```bash
 jj bookmark set <headRefName> -r @-
-jj git push --bookmark <headRefName>
+jj git push --bookmark <headRefName>   # existing bookmark (set just above); jj 0.42 needs no --allow-new
 ```
 
 ---
@@ -157,19 +157,19 @@ Dispatch `spec-writer` — the solo writer: it mutates the main tree but runs al
 
 if this is the sprint's **final unlanded PR** (every sibling `feat/sprint-v{N}(-<g>)` PR already landed — check the forge) → the **session** (not `spec-writer`) flips the `.sprint` plan `draft → built`. The flip is an annotation, never its own commit — it rides this PR's close-out commit (5.2.3) and lands with it: flip and fact become true together; a PR that never lands → neither lands.
 
-### 5.2.2 Gate — approve `.spec` delta
+### 5.2.2 Verify the `.spec` delta (autonomous)
 
-The user approves this PR's **close-out doc bundle** — the `.spec` delta, plus the plan flip when this is the final PR. Everything 5.2.3 will commit is what's shown here. if the user wants edits → back to 5.2.1.
+**Spec-accuracy check, not a sign-off (ADR-016).** The delta is `spec-writer` reflecting this PR's shipped diff — its faithfulness is *mechanically checkable*, not a human judgment: re-derive the spec sections this PR's diff touches and assert the delta records exactly them — nothing dropped, nothing invented, no untouched section rewritten. if the check fails → back to 5.2.1 (re-dispatch `spec-writer` with the discrepancy); if it passes → 5.2.3, autonomously. The plan flip (when this is the final PR) is automatic once the sprint lands (5.2.1) — no separate approval. The human ship decision is **5.2.4** (accept-vs-DoD), not this derivable check.
 
 ### 5.2.3 Finish + push the close-out bundle
 
-One publication motion — deliberately fused so nothing intervenes between the 5.2.2 gate and publication (both ops stay named). The delta (+ flip) is already snapshotted in `@`:
+One publication motion — deliberately fused so nothing intervenes between 5.2.2's accuracy-verify and publication (both ops stay named). The delta (+ flip) is already snapshotted in `@`:
 
 ```bash
 jj describe -m "<docs commit per commit-format>"
 jj new
 jj bookmark set <headRefName> -r @-
-jj git push --bookmark <headRefName>
+jj git push --bookmark <headRefName>   # existing bookmark (set just above); jj 0.42 needs no --allow-new
 ```
 
 Doc-only — the code tip was verified at 5.1.5; no re-verify.
@@ -191,7 +191,7 @@ The rebase **completes even on conflict** — a conflict is recorded in the comm
 
 ```bash
 jj bookmark set development -r <rebased tip>
-jj git push --bookmark development
+jj git push --bookmark development   # existing trunk bookmark; jj 0.42 needs no --allow-new
 ```
 
 The bookmark move is forward-only — the FF; jj refuses a backward move. if the push rejects on a **stale lease** → that rejection IS the concurrency control: `jj git fetch` · re-rebase · retry. The PR then closes — its commits landed under fresh SHAs, change-ids preserved.
@@ -243,6 +243,7 @@ Safety net — normally a no-op (Build 3.2.6 cleaned per wave, 5.1.4 per fix bat
 
 - survivor workspaces under `.claude/worktrees/` → `jj workspace forget <name>` + `rm`
 - leftover PR bookmarks → `jj bookmark delete <name>` + `jj git push --deleted`
+- any completed `[Epic]` issue still open whose child tickets all closed (Build 3.4.3 should have closed it at build) → `gh issue close <epic-N>` — safety net for an epic Build 3.4.3 should have closed
 
 ### 5.3.4 Present summary
 
@@ -269,7 +270,7 @@ Then recommend the next step — *phases don't share a session; artifacts are th
 - **Session is the sole author** — fix agents and `spec-writer` are hands, not authors: diffs in, session-authored commits out; workers never commit, never run jj.
 - **One atomic commit per finding** — `fix(scope): <finding>`; a testable fix + its regression test is one commit; fixes are never bundled.
 - **Verify is a step, not a push side effect** — jj runs no git hooks; 5.1.5 is the explicit gate (Verify + `conflicts()` empty), and only then does 5.1.6 publish.
-- **Gates on content, never vcs ops** — pick findings (5.1.2), approve the delta (5.2.2), accept the PR (5.2.4); every commit, push, and land follows autonomously.
+- **One human gate, on content, never vcs ops (ADR-016)** — accept the PR against its DoD (5.2.4); the fix-set (5.1.2, default fix-all-published) and the spec delta (5.2.2, self-verified for accuracy) run autonomously, and every commit, push, and land follows autonomously.
 - **The trunk only moves forward** — land = fetch → rebase → bookmark FF → lease push, per PR (a **stack** base-first: retarget the dependent's base to `development` before deleting the base branch, then rebase + FF); a stale lease means fetch · re-rebase · retry; the flow never merges.
 - **Flip rides the fact** — the `.sprint` `draft → built` flip is an annotation on the final PR's close-out commit, made by the session; 5.3.2 only confirms it, never commits.
 - **Bookmark deletion is manual** — rebase-land never fires GitHub's auto-delete; 5.2.6 deletes local + remote.

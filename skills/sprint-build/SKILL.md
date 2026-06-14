@@ -42,7 +42,7 @@ A match for the v{N} plan must exist in the ancestry.
 One-time repo facts, checked at point of need — Build breaks without them:
 
 - **The plugin's worktree hooks are active** (`hooks/hooks.json` → `scripts/jj-worktree-{create,remove}.sh`, auto-loaded on install). They make subagent `isolation: worktree` jj-safe: on a jj repo **create** makes a `jj workspace` based on the chain tip (`@-`) instead of a git worktree, and **teardown** is `jj workspace forget` — no `git branch -D`, no `jj git import`, so the anonymous sprint chain is never re-based onto the trunk seed or orphaned (ADR-013). On a non-jj repo the hooks fall through to the default `git worktree add`/`remove`. Keep `@` **empty** at dispatch — the finish discipline (3.2.4's closing `jj new`) guarantees `@-` is the last finished commit, which is what the create hook bases each worker on. (Claude Code's own `worktree.baseRef` is not consulted on the jj path — the hook owns basing.)
-- **`.claude/worktrees/` gitignored** — doubly load-bearing under jj: jj auto-snapshots every non-ignored path, so un-ignored workspaces would be swept into `@`.
+- **`.claude/worktrees/` gitignored in the *committed* `.gitignore`** — doubly load-bearing under jj: jj auto-snapshots every non-ignored path, so un-ignored workspaces would be swept into `@`. Plan 1.0.2 writes this at bootstrap; if it's absent here (or sits only in machine-local `.git/info/exclude`), add it to the **committed** `.gitignore` so isolation is reproducible on a fresh clone, not rediscovered + re-verified each Build.
 - **Build-needed gitignored config (`.env`, secrets) listed in `.worktreeinclude`** (repo root, `.gitignore` syntax) — a jj workspace, like a git worktree, checks out only *tracked* files, so the create hook copies `.worktreeinclude` matches into each worker tree; tracked files are never duplicated.
 
 if a precondition is missing → set it before any dispatch (one-time repo setup, not a deviation).
@@ -195,7 +195,15 @@ From the build-order's `## PR Grouping` (coupling + dependency-closed — decide
 
 **One group → no surgery.** The integration chain *is* the PR chain → 3.4.
 
-**Peer groups → duplicate** (each is independently based on `development`). Per peer group, its commits in wave order:
+**>1 group → reorder to group-coherent first (ADR-015).** Build integrated **by wave** (3.2), so the chain is wave-ordered and a group's commits are **interleaved** with other groups' — non-contiguous. Naming a stacked group's tip on that chain (or duplicating a peer's scattered revs) bleeds other groups' diffs into the PR. So before any peer/stacked mechanics, **gather each group into a contiguous block**, groups in **base→dependent order** (a stacked group after the group it depends on; peers in any stable order):
+
+```bash
+jj rebase -r <group-revs> -d <prior-group-tip | development@origin>   # per group, base→dependent order
+```
+
+Dependency-safe — groups are dependency-closed, so base→dependent group order is a valid topological order; no hard dep is violated. It rewrites only **unpushed** commits (nothing was pushed before 3.4.1): subjects, trailers, and change-ids are preserved (it's `jj rebase`, never squash) — the end-state invariant is untouched, and `docs(plan)` rides the first group. if the reorder records a conflict → Build 3.2.4's heal-in-place (`jj edit` → fix-agent → snapshot amends, message/trailers intact), never a force-merge. The chain is now contiguous group blocks in dependency order — peer/stacked mechanics below run on *that*.
+
+**Peer groups → duplicate** (each is independently based on `development`). Per peer group, its now-contiguous commits:
 
 ```bash
 jj duplicate <group-revs> -o development@origin
@@ -204,7 +212,7 @@ jj duplicate <group-revs> -o development@origin
 - A **clean duplicate self-validates peer independence**. if a *peer* duplicate records a conflict → the group wasn't dependency-closed → **flag, don't force** — never resolve it into existence.
 - Once the peer groups cut clean → `jj abandon` the original chain's head **only if no stacked group still rides it** (consumed by the duplicates; keeps `jj log` honest).
 
-**Stacked groups → keep the chain, never duplicate (ADR-014).** A stacked group depends on a prior group *still in this sprint*, so it does **not** rebase onto bare `development` — duplicating it there records a conflict *because of the real dependency, not a closure gap*. **Do not misread that as un-closed and refuse to publish** (the old peer-only failure mode). Leave the verified chain intact: note each group's tip and its base — the first group's base is `development` (it carries `docs(plan)`), each later group's base is the prior group's tip. The names are created at push (3.4.1); a mixed sprint duplicates its peers and leaves its stack in place.
+**Stacked groups → keep the chain, never duplicate (ADR-014).** A stacked group depends on a prior group *still in this sprint*, so it does **not** rebase onto bare `development` — duplicating it there records a conflict *because of the real dependency, not a closure gap*. **Do not misread that as un-closed and refuse to publish** (the old peer-only failure mode). Leave the now group-coherent chain (reordered above) intact: note each group's tip and its base — the first group's base is `development` (it carries `docs(plan)`), each later group's base is the prior group's tip (clean because the reorder made each group's commits contiguous — its tip no longer rides another group's diffs). The names are created at push (3.4.1); a mixed sprint duplicates its peers and leaves its stack in place.
 
 **Per-group standalone Verify.** Run the build-order Verify on each group's tip — a peer's duplicated tip, or a stacked group's tip *on the chain* (which includes its base groups — the state it is reviewed in). A clean cut proves only *textual* independence; a group can apply clean and **break standalone** (3.2.5 gated only the combined tip). if a tip fails → flag the grouping (a Tickets 2.5.3 signal), **don't push**.
 
@@ -219,7 +227,7 @@ jj duplicate <group-revs> -o development@origin
 **Publication** — per PR chain, in build-order (a stack's base group first):
 
 ```bash
-jj git push --named feat/sprint-v{N}(-<g>)=<tip>
+jj git push --named feat/sprint-v{N}(-<g>)=<tip>   # jj 0.42: --named auto-creates the bookmark; never --allow-new (not a valid flag)
 ```
 
 `<tip>` is the group's tip — a **peer**'s duplicated tip (3.3.1) or a **stacked** group's tip on the verified chain. `<g>` = the group's slug from `## PR Grouping` — deterministic, two runs name alike; one group → no `-<g>`. The name exists only from here, and nothing was pushed before — durability was local. For a stack, pushing the base tip and each later group's tip publishes **one linear history under several refs** — no duplication, no force (each is a fresh named bookmark). **jj runs no git hooks** — the gates already ran (3.2.5 on the combined tip; 3.3.1 per divided/stacked tip); push is transport, not a gate.
@@ -245,10 +253,12 @@ A stacked PR's `--base` is the prior group's branch — so GitHub diffs it again
 gh issue close <N> --comment "Built in <PR URL>"
 gh issue unpin <build-order-N>
 gh issue close <build-order-N> --comment "Build complete. PR(s): <URLs>"
+gh issue close <epic-N> --comment "Epic complete — all child tickets built."   # ONLY epics whose children are ALL now closed
 ```
 
 - Close every **built** ticket issue with its PR link.
 - Unpin + close the build-order issue with the PR link(s) — the pin slot comes back (Tickets 2.5.7).
+- **Close completed epics.** After the ticket + build-order closes, close each `[Epic]` issue whose child tickets (the issues threaded `Part of #<epic>`, Tickets 2.4.4) are **all** now closed — *close-when-last-child-closes*, so an epic spanning sprints with unbuilt children stays open. Without this, shipped epics linger open forever and `gh issue list --state open` stops reflecting work actually in progress.
 
 ### 3.4.4 Handoff
 

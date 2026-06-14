@@ -1,6 +1,6 @@
 # finding-report-format
 
-The shape of one **finding report** — the in-flight object a specialist returns at 4.3.1, the session collects at 4.3.2, and the Opus arbitrator reads at 4.4.1. **No file.** These are session-internal objects, never a persisted `.sprint` artifact — analogous to a system prompt, a contract a producer fills and a consumer reads, not a stored document. After arbitration (4.4.1) they become PR comments (`finding-format`, 4.5.2) and backlog entries (`.sprint/findings.md`, 4.5.1).
+The shape of one **finding report** — the in-flight object a specialist returns at 4.3.1, the session collects at 4.3.2, and the Opus arbitrator reads at 4.4.1. **No file.** These are session-internal objects, never a persisted `.sprint` artifact — analogous to a system prompt, a contract a producer fills and a consumer reads, not a stored document. After arbitration (4.4.1) they become PR comments (`finding-format`, 4.5.2) and backlog entries (this PR's `.sprint/findings-<g>.md`, 4.5.1).
 
 ## The artifact is one shape, filled in two stages
 

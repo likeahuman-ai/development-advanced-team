@@ -188,7 +188,7 @@ Goal: assemble this PR's review outputs — backlog the 50–74 non-testable buc
 
 ### 4.5.1 Append to the findings backlog
 
-Append this PR's 50–74 non-testable findings to `.sprint/findings.md` **under a per-PR heading** — disjoint regions, so sibling PRs' appends merge clean at land. Silent: no user output, and never GitHub Issues. If the bucket is empty → write nothing and skip 4.6.1–4.6.2.
+Write this PR's 50–74 non-testable findings to its **own** backlog file `.sprint/findings-<g>.md` — `<g>` is this PR's group slug (from its branch `feat/sprint-v{N}-<g>`; a single-group sprint with no `-<g>` writes `.sprint/findings.md`). A per-PR **file** (not a shared file under a per-PR heading) keeps sibling PRs' backlog commits on **disjoint paths**, so they never collide on a stacked rebase or peer land — a shared `findings.md` collides on the boundary line *even with* disjoint headings, since two commits append to the same file's tail. Silent: no user output, and never GitHub Issues. If the bucket is empty → write nothing and skip 4.6.1–4.6.2.
 
 ### 4.5.2 Format the PR comment
 
@@ -208,7 +208,7 @@ Goal: per PR persist the backlog, deliver the comment, advance the label; then h
 
 ### 4.6.1 Finish the backlog (per PR)
 
-If 4.5.1 wrote findings → **finish** the backlog commit on this PR's chain — in **this PR's review workspace** (4.1.4), whose `@` sits atop the PR head. The `.sprint/findings.md` write there is auto-snapshotted into that `@` (no `git add`, no commit act); run these from the workspace:
+If 4.5.1 wrote findings → **finish** the backlog commit on this PR's chain — in **this PR's review workspace** (4.1.4), whose `@` sits atop the PR head. The `.sprint/findings-<g>.md` write there is auto-snapshotted into that `@` (no `git add`, no commit act); run these from the workspace:
 
 ```bash
 jj describe -m "<conventional message per commit-format>"
