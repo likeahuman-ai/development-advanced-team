@@ -19,7 +19,7 @@ Discover the PRs, present findings, dispatch fix agents and `spec-writer`, autho
 | Tool | Allowed | Purpose |
 |------|---------|---------|
 | Agent | YES | Fix agents (5.1.3, 5.1.5) and `spec-writer` (5.2.1) |
-| Bash (`jj`, `gh`, `git apply`, `git worktree`, `git branch -D`, the build-order provision/Verify commands) | YES | Discovery, positioning, finishes, the verify gate, publishes, the land, cleanup |
+| Bash (`jj`, `gh`, the build-order provision/Verify commands) | YES | Discovery, positioning, finishes, the verify gate, publishes, the land, cleanup |
 | Read / Grep / Glob | YES | Work orders, build-order, review-standard slices, plan status |
 | Edit / Write | ONLY the 5.2.1 plan flip | The `.sprint` `draft → built` status edit — nothing else |
 
@@ -65,7 +65,7 @@ Sync in first — review's push may be from another session:
 jj git fetch
 ```
 
-Then set the work surface — `jj new <bookmark>` atop this PR's head, or confirm `@` already sits there (`jj log -r @- --no-graph -T commit_id` matches the PR's `headRefOid`). Fixes and the spec delta finish onto this position; `worktree.baseRef: "head"` (Build 3.1.2's precondition) makes the last finished commit (`@-`) the cut point for fix worktrees — keep `@` empty at dispatch.
+Then set the work surface — `jj new <bookmark>` atop this PR's head, or confirm `@` already sits there (`jj log -r @- --no-graph -T commit_id` matches the PR's `headRefOid`). Fixes and the spec delta finish onto this position; the create hook bases each fix workspace on the last finished commit (`@-`; Build 3.1.2) — keep `@` empty at dispatch.
 
 if foreign uncommitted state sits in `@` → surface it to the user, don't blind-switch over another session's work.
 
@@ -100,25 +100,26 @@ Inject per agent: the finding (description · evidence · permalink) + its slice
 
 **The Build 3.2.1 worktree contract applies in full — state it in the prompt:**
 
-- the worktree is plain git, tracked files only — **never commit, never run jj**
-- the worktree shares the machine's tools but ships **no project deps** → run the build-order's **provision** command first, then its **Verify** command, and self-verify to green — never rely on JS's leaking parent `node_modules` (fragile, unsound on dep changes)
-- **return the diff + a suggested message** — the session authors the commit; report status
+- the isolated copy is a jj workspace — **never run git or jj** (git there hits the *main* repo); just write files
+- it ships **no project deps** → run the build-order's **provision** command first, then its **Verify** command, and self-verify to green — never rely on JS's leaking parent `node_modules` (fragile, unsound on dep changes)
+- **return status + summary + working directory** — no diff; the session snapshots and folds the workspace
 
 ### 5.1.4 Finish the fixes (per finding)
 
-Barrier — collect every diff. Then the session finishes **one atomic commit per finding** on this PR's chain, `fix(scope): <finding>`:
+Barrier — collect every fix-agent's **status + summary + working directory**. For each `SUCCESS`, the session **snapshots** its workspace (`jj status` run inside it lands the fix in `<name>@`), then **folds one atomic commit per finding** on this PR's chain, `fix(scope): <finding>`:
 
 ```bash
-git apply --3way <the diff>
-jj describe -m "<message + trailers per commit-format>"   # jj snapshots the applied changes into @ here
-jj new
+( cd <worker-working-dir> && jj status >/dev/null )       # snapshot the fix into <name>@
+jj describe '<name>@' -m "<message + trailers per commit-format>"
+jj rebase -r '<name>@' -d '<prev-tip>'                    # fold onto this PR's tip (the first fix is already on it)
+jj new                                                     # after the last finding
 ```
 
 Message worker-suggested, session-owned; trailers carry `Assisted-by: <agent> <model>` (never `Co-Authored-By:`) plus pointers to artifact-owned facts by logical ID (`Ticket:`/`Story:`/`ADR:`/`Depends-on:`), never copies. A `testable` finding's fix + its regression test = **ONE commit** — the test proves the fix. Never bundle fixes into one commit.
 
-if fixes overlap → Build 3.2.4's mechanism: `git apply --3way` absorbs plain file overlap; a true same-line overlap rejects → author that fix on the base and `jj rebase` it onto the tip — the conflict **records, not halts** → `jj edit` the conflicted commit, dispatch a fix agent to fix the markers — the snapshot amends in place, message + trailers untouched (*hands-not-authors*: the session writes no code) → `jj new` back to the tip.
+if fixes overlap → Build 3.2.4's mechanism: the `jj rebase` of an overlapping fix **records** a conflict (not a halt) → `jj edit` the conflicted commit, dispatch a fix agent (solo-heal) to fix the markers — `jj status` amends it in place, message + trailers untouched (*hands-not-authors*: the session writes no code) → resume the fold.
 
-Tail — remove the fix worktrees (spent resource, Build 3.2.6's mechanics): per worktree under `.claude/worktrees/` — `git worktree unlock` **then** `git worktree remove --force` (harness worktrees are locked; a plain remove is refused) + delete the scratch branch (`git branch -D`). The 5.3.3 sweep is only the safety net.
+Tail — forget the fix workspaces (spent resource, Build 3.2.6's mechanics): per workspace under `.claude/worktrees/` — `jj workspace forget <name>` + `rm` the directory (the WorktreeRemove hook does this at teardown, but Claude Code may skip it — claude-code#37611 — so the session runs it explicitly; idempotent). The 5.3.3 sweep is only the safety net.
 
 ### 5.1.5 Verify the fixed tip
 
@@ -131,7 +132,7 @@ jj log -r 'conflicts()'          # must be empty
 
 The fixes are fresh code, and the new regression tests run inside Verify's scope — the fix proves itself.
 
-if Verify fails → Build 3.2.5's loop: dispatch a fix agent off the fixed tip (fresh worktree, same contract) → collect the diff → finish → re-gate. **Bounded, then escalate** — never loop indefinitely; a repeating failure is a signal for the user, not something to paper over.
+if Verify fails → Build 3.2.5's loop: dispatch a fix agent off the fixed tip (fresh workspace, same contract) → the session snapshots + folds it → re-gate. **Bounded, then escalate** — never loop indefinitely; a repeating failure is a signal for the user, not something to paper over.
 
 ### 5.1.6 Push
 
@@ -228,11 +229,11 @@ Derive `US-### → Issue → PR → .spec`. Did the landed PRs meet the sprint's
 
 All this sprint's PRs landed — the forge **is** the completion record (built tickets were closed at Build 3.4.3; unbuilt ones legitimately stay open). Confirm the plan flip landed with the final PR — **inspect only, no commit ever**. if the plan still reads `draft` → an irregular close: report it — the next sprint's backstop (Plan 1.0.3) catches it; never commit a flip here.
 
-### 5.3.3 Sweep worktrees + bookmarks
+### 5.3.3 Sweep workspaces + bookmarks
 
 Safety net — normally a no-op (Build 3.2.6 cleaned per wave, 5.1.4 per fix batch, 5.2.6 per PR):
 
-- survivor worktrees + scratch branches under `.claude/worktrees/` → `git worktree unlock` → `git worktree remove --force` → `git branch -D`
+- survivor workspaces under `.claude/worktrees/` → `jj workspace forget <name>` + `rm`
 - leftover PR bookmarks → `jj bookmark delete <name>` + `jj git push --deleted`
 
 ### 5.3.4 Present summary

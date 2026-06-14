@@ -10,7 +10,7 @@ Reference formats by name — `finding-format`, `build-order-format`, `commit-fo
 
 > ## Fix: [FINDING TITLE]
 >
-> Fix this one finding on a green self-verify. Return your diff, a suggested commit message, and your status. You write code; you do **not** finish history.
+> Fix this one finding to a green self-verify. You write code; the session collects and commits it — you produce no diff and do **not** finish history.
 >
 > ### The finding — already arbitrated, do not re-litigate
 > [The published finding, shaped per `finding-format`: description · evidence · commit-pinned permalink.]
@@ -30,10 +30,10 @@ Reference formats by name — `finding-format`, `build-order-format`, `commit-fo
 > - **`yes` — also write a regression test.** Add a test that fails against the current code and passes once the fix lands — it proves the fix. Test-after the fix is the baseline; writing the test first is a fine upgrade. The fix **and its regression test are one change** — the session finishes them as a single commit.
 > - **`no` — a plain fix.** Make the described change; no test is expected.
 >
-> ### Your worktree — the standing contract
-> You are working in a fresh worktree: **plain git, tracked files only.**
+> ### Your working copy — the standing contract
+> You are working in a fresh, isolated copy of the repository (your shell's working directory).
 >
-> - **Never commit. Never run jj.** You are hands, not author. Writing the files is the whole of your job — the session finishes the commit after you return.
+> - **Never run git or jj. Never commit.** You are hands, not author. Your isolated copy is a jj workspace — a `git` command there silently acts on the *main* repository. Writing the files is the whole of your job; the session collects and commits your work after you return.
 > - **It ships no project dependencies.** Run the **provision** command first, every time, then **Verify** — never lean on a `node_modules` that leaked from the parent tree (fragile, and unsound the moment a fix touches a dependency). Both commands come from the build-order's `## Verify` section (`build-order-format`), verbatim:
 >
 >   provision:
@@ -45,8 +45,8 @@ Reference formats by name — `finding-format`, `build-order-format`, `commit-fo
 > - **Self-verify to green.** Run Verify and make it pass before you report — and when this finding is testable, the new regression test runs inside Verify's scope, so a green Verify is the proof the fix holds. A red Verify is not a finished fix.
 >
 > ### What you return
-> 1. **Your diff** — the full set of changes in the worktree (the fix, plus its regression test when testable).
-> 2. **A suggested commit message** — `fix(scope): <finding>`, subject plus a body only if a change-local "why" needs one (shape per `commit-format`). Do **not** add trailers — the session adds them.
+> 1. **Your working directory** — the absolute path of the copy you worked in (run `pwd`). The session needs it to collect your changes.
+> 2. **A summary** — what you changed (the fix, plus its regression test when testable) and a suggested `fix(scope): <finding>` subject (plus a body only if a change-local "why" needs one; shape per `commit-format`). Do **not** add trailers — the session adds them. Do **not** paste a diff.
 > 3. **Your status** — exactly one:
 >    - **SUCCESS** — the finding is fixed, Verify green, self-review clean (and the regression test passes, when testable).
 >    - **NEEDS_CONTEXT** — the fix is blocked on a specific missing fact (name it).
@@ -55,4 +55,4 @@ Reference formats by name — `finding-format`, `build-order-format`, `commit-fo
 > Before you report, check your own work against the finding: the described issue resolved, the standard satisfied, no unrelated code touched, no new issue introduced.
 >
 > ### What the session does after you
-> The session applies your diff (`git apply --3way`), authors the commit from your suggested message, adds the trailers (`Ticket:`/`Story:`/`ADR:`/`Assisted-by:`), and runs the verify gate. You never push, never commit, never run jj.
+> Using your reported working directory, the session snapshots your edits into the workspace's commit, authors the commit from your suggested subject, adds the trailers (`Ticket:`/`Story:`/`ADR:`/`Assisted-by:`), folds it onto the PR's chain, and runs the verify gate. You never push, never commit, never run git or jj, and never produce a diff.

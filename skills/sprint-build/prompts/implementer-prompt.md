@@ -1,8 +1,8 @@
 # implementer-prompt
 
-The dispatch brief for an `implementer` — a **general-purpose subagent with no agent file**. There is no system prompt behind this; the brief below is the *whole* contract, so it states it in full. The session writes one brief per ticket (Build 3.2.1), injects the per-ticket seed into the slots, and dispatches at 3.2.2 with `isolation: worktree`. The **solo-heal variant** (second mode, below) fires at 3.2.4 when a same-line overlap rejects.
+The dispatch brief for an `implementer` — a **general-purpose subagent with no agent file**. There is no system prompt behind this; the brief below is the *whole* contract, so it states it in full. The session writes one brief per ticket (Build 3.2.1), injects the per-ticket seed into the slots, and dispatches at 3.2.2 with `isolation: worktree`. The **solo-heal variant** (second mode, below) fires at 3.2.4 when folding a ticket records a same-line conflict.
 
-Reference formats by name — `commit-format`, `build-order-format`, `adr-format` — never restate them here.
+Reference formats by name — `commit-format`, `adr-format` — never restate them here.
 
 ---
 
@@ -10,7 +10,7 @@ Reference formats by name — `commit-format`, `build-order-format`, `adr-format
 
 > ## Implement: [TICKET TITLE]
 >
-> Build this one ticket to a green self-verify. Return your diff, a suggested commit message, and your status. You write code; you do **not** finish history.
+> Build this one ticket to a green self-verify. You write code; you do **not** finish history, and you produce no diff — the session collects your work itself.
 >
 > ### Ticket — the plan
 > [Full ticket body: objective · requirements · acceptance criteria · constraints · dependencies.]
@@ -32,11 +32,11 @@ Reference formats by name — `commit-format`, `build-order-format`, `adr-format
 >
 > The user's own conventions, if installed. Follow them. If the slot is empty, follow existing codebase patterns only.
 >
-> ### Your worktree — the standing contract
-> You are working in a fresh worktree: **plain git, tracked files only.**
+> ### Your working copy — the standing contract
+> You are working in a fresh, isolated copy of the repository (your shell's working directory).
 >
-> - **Never commit. Never run jj.** You are hands, not author. Writing the files is the whole of your job — the session finishes the commit after you return.
-> - **It ships no project dependencies.** Run the **provision** command first, every time, then **Verify** — never lean on a `node_modules` that leaked from the parent tree (fragile, and unsound the moment the ticket changes a dependency). Both commands, verbatim:
+> - **Never run git or jj. Never commit.** You are hands, not author. Your isolated copy is a jj workspace — a `git` command there silently acts on the *main* repository, and you must never touch the project's history. Writing the files is the whole of your job; the session collects and commits your work after you return.
+> - **It ships no project dependencies.** Run the **provision** command first, every time, then **Verify** — never lean on a dependency tree that leaked from the parent (fragile, and unsound the moment the ticket changes a dependency). Both commands, verbatim:
 >
 >   provision:
 >   {{provision_command}}
@@ -47,8 +47,8 @@ Reference formats by name — `commit-format`, `build-order-format`, `adr-format
 > - **Self-verify to green.** Run Verify and make it pass before you report. A red Verify is not a finished ticket.
 >
 > ### What you return
-> 1. **Your diff** — the full set of changes in the worktree.
-> 2. **A suggested commit message** — subject, plus a body only if a change-local "why" needs one (shape per `commit-format`). Do **not** add trailers — the session adds them.
+> 1. **Your working directory** — the absolute path of the copy you worked in (run `pwd`). The session needs it to collect your changes.
+> 2. **A summary** — what you built and a suggested commit subject (plus a body only if a change-local "why" needs one; shape per `commit-format`). Do **not** add trailers — the session adds them. Do **not** paste a diff.
 > 3. **Your status** — exactly one:
 >    - **SUCCESS** — requirements met, Verify green, self-review clean.
 >    - **NEEDS_CONTEXT** — execution is blocked on a specific missing fact (name it).
@@ -57,25 +57,25 @@ Reference formats by name — `commit-format`, `build-order-format`, `adr-format
 > Before you report, check your own work against the ticket: every requirement built, every acceptance criterion met, every constraint respected, nothing built that wasn't asked for.
 >
 > ### What the session does after you
-> The session applies your diff (`git apply --3way`), authors the commit from your suggested message, adds trailers, and runs the integration gate. You never push, never commit, never run jj.
+> Using your reported working directory, the session snapshots your edits into the workspace's commit, authors the commit from your suggested subject, adds trailers, folds it onto the chain, and runs the integration gate. You never push, never commit, never run git or jj, and never produce a diff.
 
 ---
 
-## Mode B — Solo-heal variant (3.2.4, same-line overlap)
+## Mode B — Solo-heal variant (3.2.4, same-line conflict)
 
-Fires only when a finished ticket's diff rejected on a same-line overlap and the session has `jj edit`-ed the conflicted commit. This mode runs on the **main tree, not a worktree** — there is no provision, no fresh Verify, and **no diff to return**. The task is to resolve conflict markers, nothing more.
+Fires only when folding a finished ticket recorded a same-line conflict and the session has `jj edit`-ed the conflicted commit. This mode runs on the **main tree, not a workspace** — there is no provision, no fresh Verify, and **nothing to return but status**. The task is to resolve conflict markers, nothing more.
 
 > ## Resolve conflict: [TICKET TITLE / CONFLICTED AREA]
 >
 > A recorded conflict sits in the working tree — two changes touched the same lines. Resolve the conflict markers so the result reflects **both** changes' intent. Merge what is there; write no new logic, add no feature, fix no unrelated thing.
 >
 > ### Conflicting intents
-> - **Theirs:** [the already-landed change's intent — one line.]
+> - **Theirs:** [the already-folded change's intent — one line.]
 > - **Ours:** [this ticket's intent — one line, from the ticket objective.]
 >
 > ### How to work here
-> - You are on the **main tree**, not a worktree. Do **not** provision, do **not** run a fresh Verify, do **not** commit or run jj.
-> - Edit the conflicted file(s) **in place** — remove the markers, keep both intents. The session has already opened the conflicted commit for you, so your edits amend it in place.
+> - You are on the **main tree**, not a workspace. Do **not** provision, do **not** run a fresh Verify, do **not** commit or run git/jj. The session has already opened the conflicted commit for you.
+> - Edit the conflicted file(s) **in place** — remove the markers, keep both intents. Your edits amend the commit in place when the session snapshots them.
 > - You never see the commit message and never touch it — the message and its trailers stay exactly as they were.
 > - **Return nothing but your status** — no diff. The session snapshots your in-place edits.
 >

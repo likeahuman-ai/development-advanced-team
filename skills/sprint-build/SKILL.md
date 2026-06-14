@@ -1,6 +1,6 @@
 ---
 name: sprint-build
-description: "Implements the sprint's tickets wave by wave — worktree-isolated implementers return diffs, the session finishes every commit in jj — then partitions the integration chain into divided PR chain(s), publishes, opens draft PRs, and retires the sprint's issues. Use when the user says 'start coding', 'implement this', 'build the tickets', or 'start building' — normally after /sprint-tickets has pinned a build-order; ticket numbers may be passed directly when no pin exists."
+description: "Implements the sprint's tickets wave by wave — worktree-isolated implementers write files and self-verify, the session snapshots each workspace and folds one atomic commit per ticket in jj — then partitions the integration chain into divided PR chain(s), publishes, opens draft PRs, and retires the sprint's issues. Use when the user says 'start coding', 'implement this', 'build the tickets', or 'start building' — normally after /sprint-tickets has pinned a build-order; ticket numbers may be passed directly when no pin exists."
 argument-hint: "Ticket numbers (e.g. '#203 #204') — only needed when no pinned build-order exists (degraded path)"
 ---
 
@@ -14,7 +14,7 @@ Formats referenced as `<name>-format` live at `skills/sprint-build/formats/<name
 
 **No human gates in this phase.** Build runs autonomously from the build-order to the draft PRs; its gates are agent/verify checks, which ride inline (they are not their own named steps). Pause only to escalate.
 
-**The session is the sole author of history** (*subagents are hands, not authors*). Implementers never commit and never run jj — they return diffs plus a suggested message. The session finishes every commit, owns every jj/gh motion, and writes no code itself.
+**The session is the sole author of history** (*subagents are hands, not authors*). Implementers never commit and never run git or jj — they write files, self-verify, and return their status, a summary, and their working directory. The session snapshots each workspace, finishes every commit, owns every jj/gh motion, and writes no code itself.
 
 **Initial request:** $ARGUMENTS
 
@@ -41,9 +41,9 @@ A match for the v{N} plan must exist in the ancestry.
 
 One-time repo facts, checked at point of need — Build breaks without them:
 
-- **`worktree.baseRef: "head"`** (a Claude Code setting, `.claude/settings.json`) — colocated git `HEAD` = `@-`, so worker worktrees cut from the **last finished commit = the chain tip**, not `origin/HEAD`. Keep `@` **empty** at dispatch — the finish discipline (3.2.4's closing `jj new`) guarantees it.
-- **`.claude/worktrees/` gitignored** — doubly load-bearing under jj: jj auto-snapshots every non-ignored path, so un-ignored worktrees would be swept into `@`.
-- **Build-needed gitignored config (`.env`, secrets) listed in `.worktreeinclude`** (repo root, `.gitignore` syntax) — it copies gitignored matches into each worktree; tracked files are never duplicated.
+- **The plugin's worktree hooks are active** (`hooks/hooks.json` → `scripts/jj-worktree-{create,remove}.sh`, auto-loaded on install). They make subagent `isolation: worktree` jj-safe: on a jj repo **create** makes a `jj workspace` based on the chain tip (`@-`) instead of a git worktree, and **teardown** is `jj workspace forget` — no `git branch -D`, no `jj git import`, so the anonymous sprint chain is never re-based onto the trunk seed or orphaned (ADR-013). On a non-jj repo the hooks fall through to the default `git worktree add`/`remove`. Keep `@` **empty** at dispatch — the finish discipline (3.2.4's closing `jj new`) guarantees `@-` is the last finished commit, which is what the create hook bases each worker on. (Claude Code's own `worktree.baseRef` is not consulted on the jj path — the hook owns basing.)
+- **`.claude/worktrees/` gitignored** — doubly load-bearing under jj: jj auto-snapshots every non-ignored path, so un-ignored workspaces would be swept into `@`.
+- **Build-needed gitignored config (`.env`, secrets) listed in `.worktreeinclude`** (repo root, `.gitignore` syntax) — a jj workspace, like a git worktree, checks out only *tracked* files, so the create hook copies `.worktreeinclude` matches into each worker tree; tracked files are never duplicated.
 
 if a precondition is missing → set it before any dispatch (one-time repo setup, not a deviation).
 
@@ -72,11 +72,11 @@ Objective, requirements, AC, `.spec`/`.adr` pointers — the raw material for th
 | Step | Act | Output |
 |---|---|---|
 | 3.2.1 | prepare one `implementer-prompt` brief per ticket | dispatch briefs |
-| 3.2.2 | dispatch implementers, `isolation: worktree` | one worktree per ticket, cut off the integration tip |
-| 3.2.3 | barrier — collect diffs + statuses | diffs to author |
-| 3.2.4 | finish one atomic commit per ticket, in build-order | the chain grows |
+| 3.2.2 | dispatch implementers, `isolation: worktree` | one jj workspace per ticket, based on the integration tip |
+| 3.2.3 | barrier — collect statuses; snapshot each workspace | worker files captured in `<name>@` |
+| 3.2.4 | finish one atomic commit per ticket (describe + fold), in build-order | the chain grows |
 | 3.2.5 | the gate — Verify + spec-review + `conflicts()` empty | certified wave tip |
-| 3.2.6 | remove the wave's worktrees | clean `.claude/worktrees/` |
+| 3.2.6 | forget the wave's workspaces + assert chain integrity | clean tree, chain intact |
 | 3.2.7 | no push — loop or finalize | waves remain → 3.2.1 · done → 3.3 |
 
 ### 3.2.1 Prepare dispatch prompts
@@ -89,49 +89,54 @@ Write each implementer's brief from `implementer-prompt` — *direction from the
 - the **coding-standards pointer** (if installed)
 - the build-order's **provision + Verify commands**, verbatim
 
-The prompt owns the worktree contract — reference it, never restate it. The invariants the session relies on: the worker never commits and never runs jj; it runs provision before Verify; it self-verifies to green; it returns its diff + a suggested message and reports status.
+The prompt owns the worktree contract — reference it, never restate it. The invariants the session relies on: the worker never runs git or jj (its tree is a jj workspace — git there silently hits the *main* repo); it runs provision before Verify; it self-verifies to green; and it returns its **status + summary + working directory** — no diff, because the session collects by folding the workspace (3.2.3–3.2.4).
 
 ### 3.2.2 Dispatch implementers (worktree-isolated)
 
 Dispatch one `implementer` per ticket in the wave — a **general-purpose subagent briefed with `implementer-prompt`** (no agent file exists) — with **`isolation: worktree`**, fanning the wave's independent tickets out in one parallel batch. Every dispatch runs on a capable tier (Sonnet or Opus, never Haiku).
 
-- The harness cuts each linked worktree off the **integration tip** — the 3.1.2 `baseRef` precondition makes the last finished commit the cut point. Note that commit: it is the **wave base** (3.2.4's overlap path authors on it).
-- Dispatch the wave **as written** in `## Parallel Waves` — a hard-dep wave, nothing to recompute. Each implementer writes its own tree → no clobber.
+- The plugin's WorktreeCreate hook bases each worker's `jj workspace` on the **integration tip** (`@-` — the last finished commit; see 3.1.2). Note that commit: it is the **wave base** — every worker in the wave is parented on it, and 3.2.4 folds them into a linear chain on top of it.
+- Dispatch the wave **as written** in `## Parallel Waves` — a hard-dep wave, nothing to recompute. Each implementer writes its own workspace → no clobber.
 
-### 3.2.3 Collect & triage results
+### 3.2.3 Collect results & snapshot the workspaces
 
-Wait for the wave (barrier); collect each implementer's **diff + status** — the worktree's changes; there is no branch to collect.
+Wait for the wave (barrier); collect each implementer's **status + summary + working directory**. There is no diff and no branch — the changes live on disk in each worker's `jj workspace`.
+
+jj only records a workspace's on-disk edits when a jj command runs **inside that workspace**, so for each `SUCCESS` worker the session **snapshots** its tree — materialising the worker's files into that workspace's commit (`<name>@`, where `<name>` is the workspace = `basename` of the reported working directory):
+
+```bash
+( cd "<worker-working-dir>" && jj status >/dev/null )   # snapshots edits into <name>@
+```
 
 - if `NEEDS_CONTEXT` / `BLOCKED` → re-dispatch with the gap filled — **bounded, then escalate** (3.2.5's pattern).
-- A failed / blocked / verify-fail implementer's diff is **never authored** — discard its worktree (3.2.6 mechanics) and drop its scratch branch.
+- A failed / blocked / verify-fail worker is **never snapshotted or folded** — its workspace is discarded at 3.2.6 (an unsnapshotted `<name>@` is empty and drops on forget).
 
 ### 3.2.4 Finish the wave's commits
 
-The session finishes **one atomic commit per ticket, in build-order** — the sole committer.
+The session finishes **one atomic commit per ticket, in build-order** — the sole author. Each snapshotted workspace commit (`<name>@`, from 3.2.3) already sits on the wave base; the session names it and folds the wave into a linear chain. No textual patch, no `git apply` — the worker's changes are already a jj commit; the session only describes and re-parents it.
 
-**Happy path** — per ticket:
+**Happy path** — per ticket, in build-order:
 
 ```bash
-git apply --3way <ticket-diff>   # absorbs plain file overlap
-jj describe -m "<message>"       # worker-suggested, session-owned, + trailers — commit-format
-jj new                           # open the next; leaves @ empty for the next finish
+jj describe '<name>@' -m "<message>"     # worker-suggested subject, session-owned, + trailers — commit-format
+jj rebase -r '<name>@' -d '<prev-tip>'   # fold onto the previous ticket's commit
 ```
 
-The applied edits auto-snapshot into `@` on the next jj command; `jj describe` names the commit per `commit-format` (conventional message + trailers). One ticket = one commit.
+`<prev-tip>` is the wave base for the first ticket — which is **already its parent, so skip its rebase** — and each just-finished ticket's commit for every one after, so the wave lands as a linear, one-commit-per-ticket chain in build-order. After the last ticket:
 
-**Same-line overlap (rare)** — the apply rejects:
+```bash
+jj new '<last-tip>'   # open the next; leaves @ empty on the new chain tip for the next finish
+```
 
-1. Author that ticket on the **wave base**: `jj new <wave-base>` → clean apply → finish.
-2. `jj rebase -r <it> -o <chain tip>` — the conflict is **recorded, not a halt**.
-3. `jj edit` the conflicted commit; dispatch a **fix-agent** (an implementer dispatch — `implementer-prompt`, solo-heal variant: edits the main tree in place — no worktree, no provision, no returned diff; fix the markers only). The snapshot amends **in place** — message + trailers untouched; the session writes no code (*hands-not-authors*).
-4. `jj new` back to the chain tip.
+**Same-line overlap (rare)** — folding a ticket whose change touches the same lines as an earlier one makes the `jj rebase` **record a conflict** (it does not halt — *the integration point never freezes*):
+
+1. `jj log -r 'conflicts() & (development@origin..@)'` shows the conflicted commit.
+2. `jj edit '<conflicted>@'`; dispatch a **fix-agent** (an `implementer-prompt` solo-heal dispatch: resolve the conflict markers in place on the main tree — no workspace, no provision, no returned diff; fix the markers only).
+3. `jj status` snapshots the resolution — the commit amends **in place**, message + trailers untouched; the session writes no code (*hands-not-authors*).
+4. Resume folding the remaining tickets onto the healed commit; the closing `jj new '<last-tip>'` happens once, after the last ticket.
 5. **Bounded, then escalate.** Log the overlap as a **coupling signal** — it feeds decomposition.
 
-**Dep-change ticket** — exclude the lockfile hunks from the apply; apply the manifest, then **regenerate** the lockfile with the repo-matched tool — never line-merge a lockfile:
-
-```bash
-npm install --package-lock-only   # · pnpm install · cargo generate-lockfile · …
-```
+**Dep-change ticket** — needs no special handling: the worker ran provision **inside its workspace** (per its brief), so a regenerated lockfile is already part of the files snapshotted into `<name>@` and folds like any other change. Never line-merge a lockfile.
 
 ### 3.2.5 Post-integration verify — the gate
 
@@ -147,21 +152,29 @@ jj log -r 'conflicts() & (development@origin..@)'
 
 Branches:
 
-- if **Verify fails** → dispatch a **fix-agent** in a fresh worktree off the integration tip (it sees the whole wave; `implementer-prompt` applies in full — provision, self-verify, return diff) → the session finishes its diff (3.2.4 mechanics) → re-gate. **Bounded, then escalate** — a structural failure is a signal, not papered over.
+- if **Verify fails** → dispatch a **fix-agent** in a fresh workspace off the integration tip (it sees the whole wave; `implementer-prompt` applies in full — provision, self-verify, report status) → the session snapshots + folds it (3.2.3–3.2.4 mechanics) → re-gate. **Bounded, then escalate** — a structural failure is a signal, not papered over.
 - if **spec-review fails** → **escalate, never auto-fix** — built-the-wrong-thing is a ticket/decomposition signal; an agent guessing the intended behaviour compounds the miss.
 - PASS (all three) → 3.2.6.
 
-### 3.2.6 Remove the wave's worktrees
+### 3.2.6 Forget the wave's workspaces + assert chain integrity
 
-After the gate passes — per worktree under `.claude/worktrees/` (the 3.1.2 location):
+After the gate passes — per workspace under `.claude/worktrees/` (the 3.1.2 location). The plugin's WorktreeRemove hook does this at subagent teardown, but Claude Code may skip that hook (claude-code#37611), so the session runs it **explicitly** as the load-bearing cleanup — idempotent either way:
 
 ```bash
-git worktree unlock <path>           # harness worktrees are LOCKED — a plain remove is refused
-git worktree remove --force <path>
-git branch -D <scratch-branch>       # diffs were collected, nothing rides on them; clears the imported jj bookmarks
+jj workspace forget <name>           # drops tracking; a folded ticket's commit (3.2.4) is left untouched
+rm -rf <path>                        # remove the workspace directory
 ```
 
-Removal is **explicit** — a worktree holding changes is not auto-removed; `cleanupPeriodDays` only sweeps unchanged ones. Never push the workers' transient `worktree-*` branches.
+A `SUCCESS` worker's commit was folded into the chain (3.2.4), so forgetting its workspace leaves that commit in place; a discarded/blocked worker's `<name>@` was never snapshotted, so it is empty and drops on forget. If a non-empty straggler survives — `jj log -r '(development@origin..) ~ ::@'` shows it — abandon that specific revision (`jj abandon -r <change-id>`) or escalate; never blanket-abandon.
+
+**Post-cleanup chain-integrity assert.** Confirm the founding `docs(brief)`/`docs(plan)` commits and every prior wave's commit still sit on the chain with correct parents — none orphaned or re-based onto the trunk seed:
+
+```bash
+jj log -r '::@'                                      # founding docs + every finished ticket present, in build-order
+jj log -r 'conflicts() & (development@origin..@)'    # empty — no recorded conflict survived the wave
+```
+
+if a founding or prior-wave commit is missing, re-parented onto the seed, or orphaned → **STOP and escalate**: isolation corrupted the chain (a regression — never rationalise it as intact). On a healthy run the chain reads trunk tip → all finished tickets → the empty `@`.
 
 ### 3.2.7 Loop or finalize
 
@@ -240,11 +253,11 @@ Summarise what was built — the PR URL(s) + their groups — and what wasn't: *
 ## Key principles
 
 - **Orchestrate, never implement** — every code write is a dispatched subagent (implementers, fix-agents); the session authors history, not code (*subagents are hands, not authors*).
-- **The session finishes every commit** — apply → `jj describe` → `jj new`; one atomic commit per ticket, in build-order. Workers never commit, never run jj — they return diffs; there is no worker branch to merge or cherry-pick.
+- **The session finishes every commit** — snapshot the workspace (`jj status` inside it) → `jj describe '<name>@'` → `jj rebase` onto the prior tip → `jj new`; one atomic commit per ticket, in build-order. Workers never run git or jj and return no diff — collection is the session's jj-fold of each workspace; there is no worker branch or patch to merge.
 - **Trust the build-order** (*trust the artifact*) — waves, grouping, scope, provision, Verify are decided upstream; never recompute. if faithful execution would actually break → stop and escalate; never diverge silently.
 - **Conflicts record, never halt** (*the integration point never freezes*) — a recorded conflict is data on a commit; heal in place with `jj edit` + a fix-agent; message + trailers are never in play.
 - **Push is publication** — not durability (local commits carry that) and not a gate (jj runs no git hooks; the gates are explicit verify steps). Nothing pushes before 3.4.1; push only verified, finished state.
-- **Provision unconditionally** — a fresh worktree is write-isolated, not build-isolated.
+- **Provision unconditionally** — a fresh workspace is write-isolated, not build-isolated; it ships no project dependencies.
 - **Bounded, then escalate** — re-dispatch with the gap filled, a few rounds at most; a repeating failure is a signal. Spec-review failure escalates immediately — never auto-fix.
 - **Capability over cost** — every dispatch runs on a capable tier: Sonnet or Opus, never Haiku.
 - **Stay in phase** — `/sprint-tickets` produced the build-order; `/sprint-review` consumes the PRs. Hand off at the boundaries; never execute their work.
