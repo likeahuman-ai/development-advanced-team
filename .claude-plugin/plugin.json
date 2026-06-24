@@ -1,6 +1,6 @@
 {
   "name": "development-advanced-team",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Team-grade dev workflow on jj — /sprint-plan (+ ADRs) /sprint-tickets /sprint-build (parallel waves) /sprint-review /sprint-refine (+ spec, rebase-land)",
   "author": {
     "name": "LikeAHuman.ai",

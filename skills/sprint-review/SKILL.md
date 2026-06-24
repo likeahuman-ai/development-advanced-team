@@ -97,7 +97,7 @@ Goal: understand this PR's change, gather the injectable context, pick the roste
 
 Three homogeneous reads, one consumer (the roster, 4.2.3):
 
-1. **Classify each changed file** → which specialists it triggers. Judgment, not a fixed taxonomy — e.g. error-handling paths → `silent-failure-hunter`; type definitions → `type-design-reviewer`; tests → `test-coverage-reviewer`; comment-dense files → `comment-analyzer`; high-churn paths → `history-reviewer`; secrets/config/auth/input-handling surfaces → `security-reviewer`.
+1. **Classify each changed file** → which specialists it triggers. Judgment, not a fixed taxonomy — e.g. error-handling paths → `silent-failure-hunter`; type definitions → `type-design-reviewer`; tests → `test-coverage-reviewer`; comment-dense files → `comment-analyzer`; high-churn paths → `history-reviewer`. **One exception — not judgment:** a **sensitive surface** (**auth · secrets · input-handling · subprocess · network**) is a **mandatory trigger** for `security-reviewer` — when any of the five is touched, the classifier MUST flag it; this feeds the §4.2.3 floor, where `security-reviewer` is non-optional.
 2. **Detect the framework** → one bare **platform-as-fact** line (e.g. `Platform: Next.js 16 App Router`) — no context blurb; the agent knows the framework.
 3. **Coding standards** — if installed, match changed files → the relevant rule files (security rules included, where present) and hold their content for injection; if absent → skip `standards-reviewer`.
 
@@ -118,9 +118,11 @@ Always — the floor; anything reaching here is a code change:
 - `code-quality-reviewer`
 - `code-simplifier`
 
+Hard floor on sensitive surfaces — **non-optional, not a judgment call:** if 4.2.1's classification found the change touches any **sensitive surface — auth · secrets · input-handling · subprocess · network** — then `security-reviewer` is **mandatory**, added to the roster like the always-floor. It is not on the conditional list below for those surfaces — there it is no longer a judgment call but required. (The always-floor stays exactly `code-quality-reviewer` + `code-simplifier`; this clause adds `security-reviewer` only, only on the five named surfaces — not a full-always roster.)
+
 Conditional, by 4.2.1's classes:
 
-- `silent-failure-hunter` · `type-design-reviewer` · `test-coverage-reviewer` · `comment-analyzer` · `history-reviewer` · `security-reviewer` · `standards-reviewer` (only when standards are installed)
+- `silent-failure-hunter` · `type-design-reviewer` · `test-coverage-reviewer` · `comment-analyzer` · `history-reviewer` · `standards-reviewer` (only when standards are installed)
 
 ---
 

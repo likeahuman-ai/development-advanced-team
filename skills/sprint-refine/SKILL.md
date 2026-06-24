@@ -23,7 +23,7 @@ Discover the PRs, present findings, dispatch fix agents and `spec-writer`, autho
 | Read / Grep / Glob | YES | Work orders, build-order, review-standard slices, plan status |
 | Edit / Write | ONLY the 5.2.1 plan flip | The `.sprint` `draft → built` status edit — nothing else |
 
-Subagents never run jj or git — all vcs motion (snapshots, describes, bookmarks, pushes) belongs to the session. Two agents do write the main tree's files (never the vcs): `spec-writer` (5.2.1, the solo writer) and the marker fix-agent on a recorded conflict (5.1.4).
+Subagents never run jj or git — all vcs motion (snapshots, describes, bookmarks, pushes) belongs to the session. Two agents write files (never the vcs), each inside its own jj workspace (worktree-isolated, like the fix-agents): `spec-writer` (5.2.1) writes the `.spec` delta in its workspace, and the marker fix-agent on a recorded conflict (5.1.4) writes the resolved markers in its. Both write files; the session owns all vcs motion.
 
 **One human gate (ADR-016):** 5.2.4 (accept the PR against its DoD) — the genuine ship/no-ship call the model can't make for the user. The fix-set (5.1.2) and the `.spec` delta (5.2.2) run **autonomously**: 5.1.2 defaults to fix-all-published (the published set *is* Review's arbitrated must-fix set), and 5.2.2 self-verifies the delta's accuracy against the diff — gating either would rubber-stamp work the model can verify itself, which the rubric's own gate-ergonomics criterion forbids. The vcs motion after the gate runs autonomously — never gate a commit, a push, or the land itself.
 
@@ -55,7 +55,7 @@ gh issue view <number>
 
 ### 5.0.2 Iterate per PR — fixes fan out, the land serialises
 
-**Fixes + spec fan out across PRs (ADR-014).** The old "single working copy = serial boundary" is lifted: each PR's fix-agents and `spec-writer` run in their **own jj workspaces** (Build 3.1.2's machinery), so the **slow work overlaps across PRs**. Mechanism: position `@` at a PR's tip (5.0.3) and dispatch *that* PR's fix batch — the create hook cuts its workspaces from `@-`, so each PR's batch must be cut while `@` sits on its tip — then move to the next PR and dispatch its batch; **once cut, the workspaces are independent, so all PRs' batches run concurrently** (creation is staggered, execution overlaps). The session stays **sole committer**: it folds each returned workspace serially onto *that PR's own chain* (folding is cheap; the dispatched agent work is what parallelises). *(Cross-PR dispatch shares the agent concurrency cap with each PR's own fix batch — it schedules, not free-doubles; still a win when one PR's batch finishes early.)*
+**Fixes + spec fan out across PRs (ADR-014).** The old "single working copy = serial boundary" is lifted: each PR's fix-agents **and `spec-writer`** run in their **own jj workspaces** (Build 3.1.2's machinery), so the **slow work overlaps across PRs**. Mechanism: position `@` at a PR's tip (5.0.3) and dispatch *that* PR's fix batch — the create hook cuts its workspaces from `@-`, so each PR's batch must be cut while `@` sits on its tip — then move to the next PR and dispatch its batch; **once cut, the workspaces are independent, so all PRs' batches run concurrently** (creation is staggered, execution overlaps). **The spec delta fans out the same way:** a sprint's per-PR `spec-writer`s are emitted in **ONE batched dispatch** (5.2.1) — each cut from its own PR's tip while `@` sits there, so creation staggers but execution overlaps once cut. The session stays **sole committer**: it folds each returned workspace serially onto *that PR's own close-out chain* (folding is cheap; the dispatched agent work is what parallelises). Disjoint spec sections — the divided-PR common case (disjoint code → disjoint spec sections, 5.2.1) — fold clean; a rare same-section overlap between two PRs' deltas reconciles via the existing doc/spec path (5.2.5), **never a park**. *(Cross-PR dispatch shares the agent concurrency cap with each PR's own fix batch — it schedules, not free-doubles; still a win when one PR's batch finishes early.)*
 
 **Land order.** **Peers** (`base: development`) are independent → land in **any order**. A **stack** (a PR whose `base:` is a prior in-sprint group) lands in **dependency order, base first** (5.2.5) — the dependent rebases onto the *landed* base. The land is **always serial** regardless: `development` is one resource and the stale-lease push is the concurrency control (5.2.5).
 
@@ -96,9 +96,17 @@ Present this PR's published findings from the latest `### Code Review` comment (
 
 ### 5.1.3 Dispatch fixes (parallel)
 
-Dispatch fix agents in ONE parallel batch — one general-purpose subagent per picked finding, `isolation: worktree`, cut off this PR's tip (5.0.3 positioned `@` there — `@-` is the cut point). Fix agents have no agent file — each is a general subagent briefed with `fix-prompt`.
+**First, group the picked findings by target file (ADR-018).** Read each picked finding's target file from its `finding-format` field — the published comment's `Files:` edited-path list, the authoritative source for this partition. Then the **unit of dispatch is the file, not the finding**:
 
-Inject per agent: the finding (description · evidence · permalink) + its slice of the review standard. if the finding is tagged `testable` → the agent also writes a **regression test** covering it (test-after; test-first is an upgrade) — else a plain description-based fix.
+- **One worker per distinct target file** — not one per finding. Partition the picked set by `Files:` and fan out exactly one fix worker for each distinct file.
+- **A file carrying multiple findings is ONE worker** — that worker runs all of that file's findings within itself (serial within-file). Inject the per-finding payload (description · evidence · permalink · its review-standard slice · the `testable` → regression-test rule) for **each** finding the worker owns.
+- **A finding spanning multiple files** reduces to within-worker serial on the involved files — note it so the same finding isn't double-dispatched across those files' workers.
+
+Partitioning by file makes parallel workers touch disjoint files by construction — the §5.1.4 fold-conflict heal drops to the safety net (it was the routine path before the partition).
+
+Dispatch fix agents in ONE parallel batch — one general-purpose subagent per distinct target file, `isolation: worktree`, cut off this PR's tip (5.0.3 positioned `@` there — `@-` is the cut point). Fix agents have no agent file — each is a general subagent briefed with `fix-prompt`.
+
+Inject per agent: each finding the worker owns (description · evidence · permalink) + that finding's slice of the review standard. if a finding is tagged `testable` → the agent also writes a **regression test** covering it (test-after; test-first is an upgrade) — else a plain description-based fix.
 
 **The Build 3.2.1 worktree contract applies in full — state it in the prompt:**
 
@@ -119,7 +127,7 @@ jj new                                                     # after the last find
 
 Message worker-suggested, session-owned; trailers carry `Assisted-by: <agent> <model>` (never `Co-Authored-By:`) plus pointers to artifact-owned facts by logical ID (`Ticket:`/`Story:`/`ADR:`/`Depends-on:`), never copies. A `testable` finding's fix + its regression test = **ONE commit** — the test proves the fix. Never bundle fixes into one commit.
 
-if fixes overlap → Build 3.2.4's mechanism: the `jj rebase` of an overlapping fix **records** a conflict (not a halt) → `jj edit` the conflicted commit, dispatch a fix agent (solo-heal) to fix the markers — `jj status` amends it in place, message + trailers untouched (*hands-not-authors*: the session writes no code) → resume the fold.
+**Safety net — residual overlaps only (ADR-018).** §5.1.3 partitions the batch by target file, so parallel workers touch disjoint files by construction and a same-file fold collision should not occur on the normal path. This heal stays only for the residual overlap the partition couldn't foresee — e.g. a finding whose true edit set wasn't fully captured by its target-file field. When such an overlap does surface → Build 3.2.4's mechanism: the `jj rebase` of an overlapping fix **records** a conflict (not a halt) → `jj edit` the conflicted commit, dispatch a fix agent (solo-heal) to fix the markers — `jj status` amends it in place, message + trailers untouched (*hands-not-authors*: the session writes no code) → resume the fold.
 
 Tail — forget the fix workspaces (spent resource, Build 3.2.6's mechanics): per workspace under `.claude/worktrees/` — `jj workspace forget <name>` + `rm` the directory (the WorktreeRemove hook does this at teardown, but Claude Code may skip it — claude-code#37611 — so the session runs it explicitly; idempotent). The 5.3.3 sweep is only the safety net.
 
@@ -153,7 +161,12 @@ Goal: `spec-writer` patches `.spec` for this PR's diff, then the PR is accepted 
 
 ### 5.2.1 Spec delta
 
-Dispatch `spec-writer` — the solo writer: it mutates the main tree but runs alone, so no worktree. It applies ADDED/MODIFIED/REMOVED hunks over **this PR's** diff, scoped (divided PRs touch disjoint code → disjoint spec sections), per `spec-format`.
+Dispatch `spec-writer` with `isolation: worktree`, cut off this PR's tip — the same Build 3.1.2 / 5.1.3 machinery the fix-agents use (`@-` is the cut point; keep `@` empty at dispatch per 5.0.3). It applies ADDED/MODIFIED/REMOVED hunks over **this PR's** diff in place, scoped (divided PRs touch disjoint code → disjoint spec sections), per `spec-format`. A sprint's per-PR `spec-writer`s are dispatched in one batched turn (5.0.2) — each cut from its own PR's tip, folded serially onto that PR's close-out by the session.
+
+**The 5.1.3 worktree contract applies in full — state it in the dispatch prompt:**
+
+- the isolated copy is a jj workspace — **never run git or jj** (a `git`/`jj` command there silently acts on the *main* repo); it applies the spec hunks in place over this PR's diff and writes nothing else
+- **return status + summary + working directory** — no diff; the session snapshots and folds the workspace onto this PR's close-out chain
 
 if this is the sprint's **final unlanded PR** (every sibling `feat/sprint-v{N}(-<g>)` PR already landed — check the forge) → the **session** (not `spec-writer`) flips the `.sprint` plan `draft → built`. The flip is an annotation, never its own commit — it rides this PR's close-out commit (5.2.3) and lands with it: flip and fact become true together; a PR that never lands → neither lands.
 
@@ -208,7 +221,7 @@ The bookmark move is forward-only — the FF; jj refuses a backward move. if the
 - suspend this PR's land and move on — everything else continues; other PRs proceed. Parked state is recomputable (both sides are published), so `jj undo` is equally valid to back the rebase out.
 - resolution is a **paired human session** at the clone holding the conflict — not this skill: `jj edit <conflicted>` → fix the markers together (the snapshot amends **in place** — same message, same trailers) → descendants auto-rebase → re-verify the healed tip → resume the land (FF + push) → remove `conflict-parked`.
 
-**Exception — a doc/spec overlap at the land rebase is NOT a park (5.2.1's rule).** Parking is for **code** conflicts only; a doc conflict is the spec-writer's remit: `jj edit` the conflicted close-out commit → re-dispatch `spec-writer` to reconcile the spec hunks. Name its **inputs** (the agent owns the *how*): this PR's `.spec` delta (the close-out hunks being landed) · the conflicting `.spec` delta already on `development@origin` (the landed sprint it crosses) · the **rebased tip** carrying the recorded conflict markers. It amends in place — message + trailers untouched → `jj new` back → assert `conflicts()` empty → continue the land (FF + push).
+**Exception — a doc/spec overlap is NOT a park (5.2.1's rule).** Parking is for **code** conflicts only; a doc conflict is the spec-writer's remit. This same path covers **both** overlap cases: (a) a `.spec` overlap surfacing at the land rebase against `development@origin`, and (b) a same-section overlap between two in-sprint PRs' **batched** spec deltas (5.0.2) folding onto their respective close-outs — the rare case the divided-PR disjoint-section scoping (5.2.1) doesn't avert. Either way: `jj edit` the conflicted commit → re-dispatch `spec-writer` to reconcile the spec hunks. Name its **inputs** (the agent owns the *how*): this PR's `.spec` delta (the close-out hunks being folded/landed) · the conflicting `.spec` delta (the landed sprint it crosses, or the sibling PR's overlapping delta) · the **conflicted tip** carrying the recorded conflict markers. It amends in place — message + trailers untouched → `jj new` back → assert `conflicts()` empty → continue. This is a doc/spec reconcile, not a code conflict, so it never parks.
 
 ### 5.2.6 Clean up (per PR)
 
@@ -266,7 +279,7 @@ Then recommend the next step — *phases don't share a session; artifacts are th
 ## Key principles
 
 - **Parking is not solving** — a conflicted land records, the PR parks for a paired human session, and everything else continues; this skill never auto-resolves a land conflict. Doc/spec overlaps re-dispatch `spec-writer` instead — never a parked pair.
-- **Fixes fan out, the land serialises (ADR-014)** — each PR's fix-agents + `spec-writer` run in their own jj workspaces, so the slow work overlaps across PRs (not one PR at a time); the session folds serially as sole committer. Peers land any order, a stack lands base-first; the land itself is always serial (one trunk, stale-lease control).
+- **Fixes fan out, the land serialises (ADR-014)** — each PR's fix-agents + `spec-writer` run in their own jj workspaces (worktree-isolated), so the slow work overlaps across PRs (not one PR at a time); a sprint's per-PR spec deltas fan out in one batched dispatch (5.0.2 · 5.2.1), and the session folds each serially onto its PR's close-out as sole committer. Peers land any order, a stack lands base-first; the land itself is always serial (one trunk, stale-lease control).
 - **Session is the sole author** — fix agents and `spec-writer` are hands, not authors: diffs in, session-authored commits out; workers never commit, never run jj.
 - **One atomic commit per finding** — `fix(scope): <finding>`; a testable fix + its regression test is one commit; fixes are never bundled.
 - **Verify is a step, not a push side effect** — jj runs no git hooks; 5.1.5 is the explicit gate (Verify + `conflicts()` empty), and only then does 5.1.6 publish.

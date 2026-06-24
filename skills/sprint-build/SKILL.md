@@ -93,7 +93,7 @@ The prompt owns the worktree contract — reference it, never restate it. The in
 
 ### 3.2.2 Dispatch implementers (worktree-isolated)
 
-Dispatch one `implementer` per ticket in the wave — a **general-purpose subagent briefed with `implementer-prompt`** (no agent file exists) — with **`isolation: worktree`**, fanning the wave's independent tickets out in one parallel batch. Every dispatch runs on a capable tier (Sonnet or Opus, never Haiku).
+Dispatch one `implementer` per ticket in the wave — a **general-purpose subagent briefed with `implementer-prompt`** (no agent file exists) — with **`isolation: worktree`**, fanning the wave's independent tickets out in one parallel batch. Every dispatch resolves a **pinned capable tier from the ticket's size** (`S`/`M` → sonnet, `L` → opus — Sonnet or Opus, never Haiku; no inherit, no contingent path) and records the resolved model: the commit's `Assisted-by:` trailer (3.2.4 / `commit-format`) IS the per-dispatch tier record, so every implementer commit shows the Capable tier it ran on — none a silent inherit.
 
 - The plugin's WorktreeCreate hook bases each worker's `jj workspace` on the **integration tip** (`@-` — the last finished commit; see 3.1.2). Note that commit: it is the **wave base** — every worker in the wave is parented on it, and 3.2.4 folds them into a linear chain on top of it.
 - Dispatch the wave **as written** in `## Parallel Waves` — a hard-dep wave, nothing to recompute. Each implementer writes its own workspace → no clobber.

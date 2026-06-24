@@ -86,4 +86,4 @@ Fires only when folding a finished ticket recorded a same-line conflict and the 
 
 ## Model
 
-A capable tier only — Sonnet or Opus, never Haiku: `S`/`M` → sonnet, `L` → inherit (Opus). The runtime model id is what the session records in the commit's `Assisted-by:` trailer (`commit-format`).
+A capable tier only — Sonnet or Opus, never Haiku — resolved deterministically from ticket size at dispatch: `S`/`M` → sonnet, `L` → opus. Both are Capable; no Haiku, no contingent path. The resolved model id is what the session records in the commit's `Assisted-by:` trailer (`commit-format`) — that trailer is the per-dispatch tier record.
